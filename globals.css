@@ -1,0 +1,224 @@
+/* app/globals.css */
+/* Burnt Signal theme — amber/phosphor on near-black, CRT scanline overlay */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --amber: #f5a623;
+  --amber-dim: #c97d10;
+  --amber-glow: rgba(245, 166, 35, 0.15);
+  --phosphor: #e8d5a3;
+  --bg: #0a0a08;
+  --bg-card: #111109;
+  --bg-elevated: #1a1a14;
+  --border: rgba(245, 166, 35, 0.2);
+  --border-bright: rgba(245, 166, 35, 0.5);
+  --text-primary: #e8d5a3;
+  --text-muted: #7a6e58;
+  --red-alert: #ff4444;
+  --green-safe: #44ff88;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-geist), system-ui, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scanline overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Grain texture */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* Monospace for data/numbers */
+.font-mono {
+  font-family: var(--font-mono), "Courier New", monospace;
+}
+
+/* Amber glow effect */
+.glow-amber {
+  text-shadow: 0 0 20px rgba(245, 166, 35, 0.4);
+}
+
+/* Score number style */
+.score-number {
+  font-family: var(--font-mono);
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  font-weight: 700;
+  color: var(--amber);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+/* Card style */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 1.5rem;
+}
+
+.card-elevated {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+}
+
+/* Input style */
+.input-amber {
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  padding: 0.75rem 1rem;
+  width: 100%;
+  outline: none;
+  border-radius: 2px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input-amber:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px var(--amber-glow);
+}
+
+.input-amber::placeholder {
+  color: var(--text-muted);
+}
+
+/* Button */
+.btn-primary {
+  background: var(--amber);
+  color: #0a0a08;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.75rem 2rem;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 1.25rem;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-ghost:hover {
+  background: var(--amber-glow);
+}
+
+/* Tag / pill */
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--border-bright);
+  border-radius: 2px;
+  color: var(--amber);
+  background: var(--amber-glow);
+}
+
+.tag-critical {
+  border-color: var(--red-alert);
+  color: var(--red-alert);
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.tag-safe {
+  border-color: var(--green-safe);
+  color: var(--green-safe);
+  background: rgba(68, 255, 136, 0.08);
+}
+
+/* Divider */
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5rem 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--amber-dim);
+  border-radius: 2px;
+}
+
+/* Reduce motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
