@@ -1,0 +1,26 @@
+# .gitignore
+
+# ── NEVER commit these ────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Next.js build output ──────────────────────────────────────────────────────
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
