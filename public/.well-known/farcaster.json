@@ -1,7 +1,3 @@
-// public/.well-known/farcaster.json
-// Farcaster / Base App Mini App manifest
-// Replace all placeholder values before deploying
-
 {
   "accountAssociation": {
     "header": "REPLACE_WITH_YOUR_FID_HEADER",
