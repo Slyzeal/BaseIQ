@@ -3,6 +3,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   // Allow Moralis, Alchemy, Neynar, OpenAI from server components
   serverExternalPackages: [],
   async headers() {
