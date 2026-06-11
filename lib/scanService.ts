@@ -14,12 +14,14 @@ import { classifyArchetype } from "./scoring/archetype";
 import { generateVerdictTags } from "./scoring/verdict";
 import { generateRoast } from "./scoring/roast";
 
-export async function scanWallet(address: string): Promise<ScanResult> {
+export async function scanWallet(address: string, forceRefresh = false): Promise<ScanResult> {
   const cacheKey = `scan:${address.toLowerCase()}`;
 
-  // 1. Fresh cache hit
-  const cached = await cache.get<ScanResult>(cacheKey);
-  if (cached) return { ...cached, dataSource: "cache" };
+  // 1. Fresh cache hit — skip if forceRefresh or if cached result has 0 txs (bad cache)
+  if (!forceRefresh) {
+    const cached = await cache.get<ScanResult>(cacheKey);
+    if (cached && cached.scores.reputation > 0) return { ...cached, dataSource: "cache" };
+  }
 
   let walletData: WalletData | null = null;
   let dataSource: ScanResult["dataSource"] = "moralis";
@@ -96,7 +98,10 @@ export async function scanWallet(address: string): Promise<ScanResult> {
     deployedContractAddresses: walletData.deployedContractAddresses,
   };
 
-  await cache.set(cacheKey, result);
+  // Only cache if we got real data — never cache empty/ghost results for active wallets
+  if (walletData.totalTxCount > 0 || walletData.tokenHoldings.length > 0) {
+    await cache.set(cacheKey, result);
+  }
   return result;
 }
 
