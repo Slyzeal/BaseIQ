@@ -3,10 +3,14 @@
 import { WalletData, SocialData, Scores } from "../types";
 
 export function computeScores(wallet: WalletData, social: SocialData | null): Scores {
+  // Short-circuit: wallet with no on-chain activity scores zero across the board
+  // Prevents phantom scores from token holdings or baseline values
+  const hasActivity = wallet.totalTxCount > 0 || wallet.contractsDeployed > 0;
+
   return {
-    reputation: computeReputation(wallet),
-    baseAlignment: computeBaseAlignment(wallet, social),
-    conviction: computeConviction(wallet),
+    reputation: hasActivity ? computeReputation(wallet) : 0,
+    baseAlignment: hasActivity ? computeBaseAlignment(wallet, social) : 0,
+    conviction: hasActivity ? computeConviction(wallet) : 0,
     social: social ? computeSocial(social) : null,
   };
 }
@@ -25,11 +29,9 @@ function computeReputation(w: WalletData): number {
   // Unique contracts (max 15pts)
   score += Math.min(15, Math.log10(Math.max(1, w.uniqueContractsInteracted)) * 6);
 
-  // Portfolio value (max 15pts) — use token count as fallback
-  if (w.totalPortfolioUsd > 0) {
+  // Portfolio value (max 15pts) — only counts if wallet has tx history
+  if (w.totalPortfolioUsd > 0 && w.totalTxCount > 0) {
     score += Math.min(15, Math.log10(Math.max(1, w.totalPortfolioUsd)) * 3);
-  } else {
-    score += Math.min(8, w.tokenHoldings.filter(t => !t.isSpam).length * 1.5);
   }
 
   // Contracts deployed (max 15pts) — builder signal
@@ -87,7 +89,7 @@ function computeBaseAlignment(w: WalletData, social: SocialData | null): number 
 // ── Conviction (0–100) ────────────────────────────────────────────────────────
 // Measures Base-specific commitment — NOT passive holding
 function computeConviction(w: WalletData): number {
-  let score = 30; // lower baseline
+  let score = 0; // start at 0 — must be earned, not given
 
   const ageDays = w.firstTxTimestamp ? (Date.now() - w.firstTxTimestamp) / 86_400_000 : 0;
   const lastActiveDays = w.lastTxTimestamp ? (Date.now() - w.lastTxTimestamp) / 86_400_000 : 999;
