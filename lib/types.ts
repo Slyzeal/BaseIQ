@@ -13,6 +13,8 @@ export interface WalletData {
   spamTokenCount: number;
   defiProtocolsUsed: string[];
   bridgeCount: number;
+  pnlSummary: PnLSummary | null;
+  topTrades: TradeRecord[];
 }
 
 export interface TokenHolding {
@@ -29,6 +31,29 @@ export interface NftHolding {
   name: string;
   contractAddress: string;
   count: number;
+}
+
+export interface PnLSummary {
+  totalRealizedProfitUsd: number;
+  totalRealizedProfitPct: number;
+  totalTradeCount: number;
+  totalBuys: number;
+  totalSells: number;
+  totalBoughtVolumeUsd: number;
+  totalSoldVolumeUsd: number;
+}
+
+export interface TradeRecord {
+  tokenSymbol: string;
+  tokenName: string;
+  realizedProfitUsd: number;
+  totalInvestedUsd: number;
+  avgBuyPriceUsd: number;
+  avgSellPriceUsd: number;
+  totalBought: number;
+  totalSold: number;
+  isWin: boolean;
+  roiPct: number;
 }
 
 export interface SocialData {
@@ -55,10 +80,10 @@ export interface ApprovalRecord {
 }
 
 export interface Scores {
-  reputation: number;       // 0–100
-  baseAlignment: number;    // 0–100
-  conviction: number;       // 0–100
-  social: number | null;    // 0–100 or null if no Farcaster
+  reputation: number;
+  baseAlignment: number;
+  conviction: number;
+  social: number | null;
 }
 
 export type Archetype =
@@ -84,6 +109,8 @@ export interface ScanResult {
   rarityPercentile: number;
   scannedAt: number;
   dataSource: "moralis" | "alchemy" | "publicRpc" | "cache";
+  pnlSummary: PnLSummary | null;
+  topTrades: TradeRecord[];
 }
 
 export interface ScanRequest {
