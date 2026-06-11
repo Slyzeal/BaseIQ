@@ -48,5 +48,8 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     bridgeCount: 0,
     pnlSummary: null,
     topTrades: [],
+    contractsDeployed: 0,
+    deployedContractAddresses: [],
+    jeets: [],
   };
 }
