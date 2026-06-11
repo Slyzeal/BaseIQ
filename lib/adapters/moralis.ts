@@ -24,18 +24,28 @@ async function moralisFetch(path: string): Promise<Response> {
   const key = p.next();
   if (!key) throw new Error("MORALIS_EXHAUSTED");
 
-  const res = await fetch(`${MORALIS_BASE}${path}`, {
-    headers: { "X-API-Key": key },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
 
-  if (res.status === 429 || res.status === 402) {
-    p.bench(key);
-    const next = p.next();
-    if (!next) throw new Error("MORALIS_EXHAUSTED");
-    return fetch(`${MORALIS_BASE}${path}`, { headers: { "X-API-Key": next } });
+  try {
+    const res = await fetch(`${MORALIS_BASE}${path}`, {
+      headers: { "X-API-Key": key },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (res.status === 429 || res.status === 402) {
+      p.bench(key);
+      const next = p.next();
+      if (!next) throw new Error("MORALIS_EXHAUSTED");
+      return fetch(`${MORALIS_BASE}${path}`, { headers: { "X-API-Key": next } });
+    }
+
+    return res;
+  } catch (e) {
+    clearTimeout(timeout);
+    throw e;
   }
-
-  return res;
 }
 
 // Fetch current price for a token (for jeet calculation)
@@ -51,13 +61,19 @@ async function fetchTokenPrice(tokenAddress: string): Promise<number> {
 }
 
 export async function fetchWalletData(address: string): Promise<WalletData> {
-  const [tokensRes, nftsRes, txRes, nativeRes, statsRes, pnlSummaryRes, pnlBreakdownRes] =
+  // Tier 1 — critical: tx stats + transaction list first
+  // These determine whether wallet has any Base activity at all
+  const [statsRes, txRes] = await Promise.allSettled([
+    moralisFetch(`/wallets/${address}/stats?chain=${BASE_CHAIN}`),
+    moralisFetch(`/${address}?chain=${BASE_CHAIN}&limit=100`),
+  ]);
+
+  // Tier 2 — supporting data (only fetch if we know wallet exists)
+  const [tokensRes, nftsRes, nativeRes, pnlSummaryRes, pnlBreakdownRes] =
     await Promise.allSettled([
       moralisFetch(`/${address}/erc20?chain=${BASE_CHAIN}&limit=100`),
       moralisFetch(`/${address}/nft?chain=${BASE_CHAIN}&limit=50`),
-      moralisFetch(`/${address}?chain=${BASE_CHAIN}&limit=100`),
       moralisFetch(`/${address}/balance?chain=${BASE_CHAIN}`),
-      moralisFetch(`/wallets/${address}/stats?chain=${BASE_CHAIN}`),
       moralisFetch(`/wallets/${address}/profitability/summary?chain=${BASE_CHAIN}&days=all`),
       moralisFetch(`/wallets/${address}/profitability?chain=${BASE_CHAIN}&days=all`),
     ]);
@@ -127,30 +143,33 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
   let bridgeCount = 0;
   const contractsInteracted = new Set<string>();
 
-  if (txRes.status === "fulfilled" && txRes.value.ok) {
-    const data = await txRes.value.json();
-    const txs: any[] = data.result ?? [];
-    totalTxCount = txs.length;
-
-    for (const tx of txs) {
-      const ts = new Date(tx.block_timestamp).getTime();
-      if (!firstTxTimestamp || ts < firstTxTimestamp) firstTxTimestamp = ts;
-      if (!lastTxTimestamp || ts > lastTxTimestamp) lastTxTimestamp = ts;
-      baseNativeTxCount++;
-      const to = (tx.to_address ?? "").toLowerCase();
-      if (to) contractsInteracted.add(to);
-      if (tx.input && tx.input.length > 10) bridgeCount++;
-      if (KNOWN_BASE_PROTOCOLS[to]) protocols.add(KNOWN_BASE_PROTOCOLS[to]);
-    }
-  }
-
-  // ── Stats for real tx count ───────────────────────────────────────────────
+  // Process stats FIRST (Tier 1 — most reliable source of tx count)
   if (statsRes.status === "fulfilled" && statsRes.value.ok) {
     const stats = await statsRes.value.json();
     const realCount = stats.transactions?.total ?? stats.native_transactions_count ?? 0;
     if (realCount > 0) {
       totalTxCount = realCount;
       baseNativeTxCount = realCount;
+    }
+  }
+
+  // Process tx list for timestamps and contract interactions
+  if (txRes.status === "fulfilled" && txRes.value.ok) {
+    const data = await txRes.value.json();
+    const txs: any[] = data.result ?? [];
+
+    // Use tx list count only if stats didn't give us a count
+    if (totalTxCount === 0) totalTxCount = txs.length;
+    if (baseNativeTxCount === 0) baseNativeTxCount = txs.length;
+
+    for (const tx of txs) {
+      const ts = new Date(tx.block_timestamp).getTime();
+      if (!firstTxTimestamp || ts < firstTxTimestamp) firstTxTimestamp = ts;
+      if (!lastTxTimestamp || ts > lastTxTimestamp) lastTxTimestamp = ts;
+      const to = (tx.to_address ?? "").toLowerCase();
+      if (to) contractsInteracted.add(to);
+      if (tx.input && tx.input.length > 10) bridgeCount++;
+      if (KNOWN_BASE_PROTOCOLS[to]) protocols.add(KNOWN_BASE_PROTOCOLS[to]);
     }
   }
 
