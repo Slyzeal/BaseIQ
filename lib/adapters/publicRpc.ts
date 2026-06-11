@@ -42,9 +42,11 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     lastTxTimestamp: null,
     tokenHoldings: [],
     nftHoldings: [],
-    totalPortfolioUsd: ethBalance * 3000, // rough ETH price estimate
+    totalPortfolioUsd: ethBalance * 3000,
     spamTokenCount: 0,
     defiProtocolsUsed: [],
     bridgeCount: 0,
+    pnlSummary: null,
+    topTrades: [],
   };
 }
