@@ -6,6 +6,7 @@ import { isAddress } from "viem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Vercel hobby tier max — prevents 10s timeout kills
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +21,8 @@ export async function POST(req: NextRequest) {
     }
 
     const clean = address.trim().toLowerCase();
+    // Preserve original case for API calls — Moralis works better with checksum addresses
+    const original = address.trim();
 
     // Basic validation — accept hex addresses (ENS resolution done client-side or here)
     if (!isAddress(clean) && !clean.endsWith(".eth")) {
@@ -29,7 +32,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await scanWallet(clean, refresh === true);
+    const result = await scanWallet(original, refresh === true);
+    console.log(`[scan] ${clean} → ${result.dataSource} | rep:${result.scores.reputation} txs:${result.scores.baseAlignment} conv:${result.scores.conviction}`);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error("[/api/scan]", e);
