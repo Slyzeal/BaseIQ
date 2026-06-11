@@ -108,13 +108,23 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     const data = await nativeRes.value.json();
     const ethBalance = parseFloat(data.balance ?? "0") / 1e18;
     if (ethBalance > 0.00001) {
-      const usdValue = parseFloat(data.usd_value ?? "0") || 0;
+      // Get ETH price from Binance (free, no key needed)
+      let ethPrice = parseFloat(data.usd_value ?? "0") / ethBalance || 0;
+      if (ethPrice === 0) {
+        try {
+          const priceRes = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT");
+          if (priceRes.ok) {
+            const pd = await priceRes.json();
+            ethPrice = parseFloat(pd.price ?? "0") || 0;
+          }
+        } catch {}
+      }
       tokens.unshift({
         symbol: "ETH",
         name: "Ethereum",
         contractAddress: "native",
         balance: ethBalance,
-        usdValue,
+        usdValue: ethBalance * ethPrice,
         isSpam: false,
         chain: "base",
       });
@@ -219,20 +229,37 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
 
     // Build trade records
     for (const t of results) {
-      const realizedProfit = parseFloat(t.realized_profit_usd ?? "0") || 0;
-      const totalInvested = parseFloat(t.total_usd_invested ?? "0") || 0;
-      const totalSold = parseFloat(t.total_tokens_sold ?? "0") || 0;
-      const avgSellPrice = parseFloat(t.avg_sell_price_usd ?? "0") || 0;
+      // Moralis v2.2 PnL fields — try multiple field name variants
+      const realizedProfit = parseFloat(
+        t.realized_profit_usd ?? t.total_realized_profit_usd ?? t.realized_profit ?? "0"
+      ) || 0;
+      const totalInvested = parseFloat(
+        t.total_usd_invested ?? t.total_invested_usd ?? t.buy_amount_usd ?? "0"
+      ) || 0;
+      const totalSold = parseFloat(
+        t.total_tokens_sold ?? t.count_of_trades_sold ?? "0"
+      ) || 0;
+      const avgBuyPrice = parseFloat(
+        t.avg_buy_price_usd ?? t.average_buy_price ?? "0"
+      ) || 0;
+      const avgSellPrice = parseFloat(
+        t.avg_sell_price_usd ?? t.average_sell_price ?? "0"
+      ) || 0;
       const roiPct = totalInvested > 0 ? (realizedProfit / totalInvested) * 100 : 0;
+
+      // Debug log first result to see actual field names
+      if (topTrades.length === 0) {
+        console.log("[PnL sample]", JSON.stringify(t).slice(0, 300));
+      }
 
       topTrades.push({
         tokenSymbol: t.symbol ?? "?",
         tokenName: t.name ?? "Unknown",
         realizedProfitUsd: realizedProfit,
         totalInvestedUsd: totalInvested,
-        avgBuyPriceUsd: parseFloat(t.avg_buy_price_usd ?? "0") || 0,
+        avgBuyPriceUsd: avgBuyPrice,
         avgSellPriceUsd: avgSellPrice,
-        totalBought: parseFloat(t.total_tokens_bought ?? "0") || 0,
+        totalBought: parseFloat(t.total_tokens_bought ?? t.count_of_trades_bought ?? "0") || 0,
         totalSold,
         isWin: realizedProfit > 0,
         roiPct,
