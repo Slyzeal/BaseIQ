@@ -13,8 +13,11 @@ export interface WalletData {
   spamTokenCount: number;
   defiProtocolsUsed: string[];
   bridgeCount: number;
+  contractsDeployed: number;
+  deployedContractAddresses: string[];
   pnlSummary: PnLSummary | null;
   topTrades: TradeRecord[];
+  jeets: JeetRecord[];
 }
 
 export interface TokenHolding {
@@ -54,6 +57,19 @@ export interface TradeRecord {
   totalSold: number;
   isWin: boolean;
   roiPct: number;
+}
+
+export interface JeetRecord {
+  tokenSymbol: string;
+  tokenName: string;
+  tokenAddress: string;
+  soldAtPrice: number;
+  currentPrice: number;
+  amountSold: number;
+  realizedAtSale: number;
+  currentValueIfHeld: number;
+  missedGains: number;
+  missedGainsPct: number;
 }
 
 export interface SocialData {
@@ -111,6 +127,9 @@ export interface ScanResult {
   dataSource: "moralis" | "alchemy" | "publicRpc" | "cache";
   pnlSummary: PnLSummary | null;
   topTrades: TradeRecord[];
+  jeets: JeetRecord[];
+  contractsDeployed: number;
+  deployedContractAddresses: string[];
 }
 
 export interface ScanRequest {
