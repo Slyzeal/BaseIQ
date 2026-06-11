@@ -162,7 +162,7 @@ export default function Home() {
                 <div className="flex items-center justify-between text-xs font-mono">
                   <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{j.tokenSymbol}</span>
                   <span style={{ color: "var(--red-alert)", fontWeight: 600 }}>
-                    -${j.missedGains.toLocaleString(undefined, { maximumFractionDigits: 0 })} missed
+                    +${Math.abs(j.missedGains).toLocaleString(undefined, { maximumFractionDigits: 0 })} missed
                   </span>
                 </div>
                 <div className="flex gap-4 text-xs font-mono mt-1" style={{ color: "var(--text-muted)" }}>
