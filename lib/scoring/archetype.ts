@@ -35,25 +35,25 @@ export function classifyArchetype(
   }
 
   // Tourist — active but barely Base-aligned
-  if (baseAlignment < 25 && wallet.totalTxCount > 20) {
+  if (baseAlignment < 30 && wallet.totalTxCount > 10) {
     return { archetype: "Tourist", emoji: "🧳" };
   }
 
   // Serial Rotator — high tx volume, low conviction
-  if (txPerDay > 8 && conviction < 40) {
+  if (txPerDay > 5 && conviction < 50) {
     return { archetype: "Serial Rotator", emoji: "🌀" };
   }
 
-  // Base Maxi — extremely Base-aligned, social presence
-  if (baseAlignment >= 75 && (scores.social ?? 0) >= 50) {
+  // Base Maxi — extremely Base-aligned
+  if (baseAlignment >= 65) {
     return { archetype: "Base Maxi", emoji: "🔵" };
   }
 
-  // Diamond-Handed Degen — high conviction, active degen
-  if (conviction >= 70 && wallet.defiProtocolsUsed.length >= 3) {
+  // Diamond-Handed Degen — high conviction, decent history
+  if (conviction >= 65 && ageDays > 60) {
     return { archetype: "Diamond-Handed Degen", emoji: "💎" };
   }
 
-  // Default: Balanced Operator
+  // Balanced Operator — default for mid-range everything
   return { archetype: "Balanced Operator", emoji: "⚖️" };
 }
