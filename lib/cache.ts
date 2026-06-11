@@ -1,101 +1,111 @@
 // lib/cache.ts
-// Persistent Redis cache using @upstash/redis SDK.
-// Falls back to in-memory if Upstash env vars not set.
-// TTL: 24 hours for scan results, 72 hours stale fallback.
+// Persistent cache using Upstash Redis REST API directly.
+// No SDK — raw HTTP calls to avoid import issues in serverless.
+// TTL: 24 hours. Falls back to in-memory if Redis unavailable.
 
 import { CacheEntry } from "./types";
 
-const FRESH_TTL_S = 24 * 60 * 60;       // 24 hours in seconds
+const FRESH_TTL_S = 24 * 60 * 60;
 const FRESH_TTL_MS = FRESH_TTL_S * 1000;
 
-// ── In-memory L1 cache (always active) ───────────────────────────────────────
 const memStore = new Map<string, CacheEntry<unknown>>();
 
-// ── Upstash Redis client (lazy init) ─────────────────────────────────────────
-let _redis: any = null;
-
-async function getRedis() {
-  if (_redis) return _redis;
+// Upstash REST API — correct format
+// GET: https://{url}/get/{key}  → { result: value }
+// SET: https://{url}/set/{key}/{value}/ex/{seconds} → { result: "OK" }
+async function upstashGet(key: string): Promise<string | null> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return null;
   try {
-    const { Redis } = await import("@upstash/redis");
-    _redis = new Redis({ url, token });
-    return _redis;
+    const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.result === "string" ? data.result : null;
   } catch {
     return null;
   }
 }
 
-// ── Public cache API ──────────────────────────────────────────────────────────
+async function upstashSet(key: string, value: string, exSeconds: number): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return;
+  try {
+    // Upstash REST SET with EX: POST to /set/{key} with body
+    const res = await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ value, ex: exSeconds }),
+      cache: "no-store",
+    });
+    const data = await res.json();
+    if (data.result !== "OK") {
+      console.warn("[cache] Redis set failed:", data);
+    }
+  } catch (e) {
+    console.error("[cache] Redis set error:", e);
+  }
+}
+
+async function upstashDel(key: string): Promise<void> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return;
+  try {
+    await fetch(`${url}/del/${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {}
+}
+
 export const cache = {
   async get<T>(key: string): Promise<T | null> {
-    // L1: memory first (fastest)
+    // L1: memory
     const mem = memStore.get(key) as CacheEntry<T> | undefined;
     if (mem && Date.now() < mem.expiresAt) return mem.data;
 
     // L2: Redis
-    try {
-      const redis = await getRedis();
-      if (redis) {
-        const raw = await redis.get(key) as string | null;
-        if (raw) {
-          const entry = (typeof raw === "string" ? JSON.parse(raw) : raw) as CacheEntry<T>;
-          if (Date.now() < entry.expiresAt) {
-            // Warm L1
-            memStore.set(key, entry as CacheEntry<unknown>);
-            return entry.data;
-          }
+    const raw = await upstashGet(key);
+    if (raw) {
+      try {
+        const entry = JSON.parse(raw) as CacheEntry<T>;
+        if (Date.now() < entry.expiresAt) {
+          memStore.set(key, entry as CacheEntry<unknown>);
+          return entry.data;
         }
-      }
-    } catch {}
-
+      } catch {}
+    }
     return null;
   },
 
   async getStale<T>(key: string): Promise<T | null> {
     const mem = memStore.get(key) as CacheEntry<T> | undefined;
     if (mem) return mem.data;
-
-    try {
-      const redis = await getRedis();
-      if (redis) {
-        const raw = await redis.get(key) as string | null;
-        if (raw) {
-          const entry = (typeof raw === "string" ? JSON.parse(raw) : raw) as CacheEntry<T>;
-          return entry.data;
-        }
-      }
-    } catch {}
-
+    const raw = await upstashGet(key);
+    if (raw) {
+      try { return (JSON.parse(raw) as CacheEntry<T>).data; } catch {}
+    }
     return null;
   },
 
   async set<T>(key: string, data: T): Promise<void> {
     const entry: CacheEntry<T> = { data, expiresAt: Date.now() + FRESH_TTL_MS };
-
-    // Write to L1
     memStore.set(key, entry as CacheEntry<unknown>);
-
-    // Write to Redis with TTL
-    try {
-      const redis = await getRedis();
-      if (redis) {
-        await redis.set(key, JSON.stringify(entry), { ex: FRESH_TTL_S });
-      }
-    } catch {}
+    await upstashSet(key, JSON.stringify(entry), FRESH_TTL_S);
   },
 
   async delete(key: string): Promise<void> {
     memStore.delete(key);
-    try {
-      const redis = await getRedis();
-      if (redis) await redis.del(key);
-    } catch {}
+    await upstashDel(key);
   },
 
-  size(): number {
-    return memStore.size;
-  },
+  size(): number { return memStore.size; },
 };
