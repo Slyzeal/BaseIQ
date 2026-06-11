@@ -65,5 +65,7 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     spamTokenCount: 0,
     defiProtocolsUsed: [],
     bridgeCount: 0,
+    pnlSummary: null,
+    topTrades: [],
   };
 }
