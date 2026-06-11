@@ -1,21 +1,20 @@
 // lib/adapters/moralis.ts
 // Primary data adapter — Moralis EVM API (free tier, indexer-based).
-// Uses KeyPool for multi-key daily quota rotation.
+// Provides: tokens, NFTs, txs, native balance, PnL, jeet detection.
 
-import { WalletData, TokenHolding, NftHolding, PnLSummary, TradeRecord } from "../types";
-import { fetchTxSummary } from "./basescan";
+import { WalletData, TokenHolding, NftHolding, PnLSummary, TradeRecord, JeetRecord } from "../types";
 import { KeyPool } from "../keypool";
 import { RawApprovalEvent } from "../approvals/scanner";
+import { fetchTxSummary } from "./basescan";
 
-const BASE_CHAIN = "0x2105"; // Base mainnet chain ID
+const BASE_CHAIN = "0x2105";
 const MORALIS_BASE = "https://deep-index.moralis.io/api/v2.2";
 
 let pool: KeyPool | null = null;
 
 function getPool(): KeyPool {
   if (!pool) {
-    const keys = process.env.MORALIS_API_KEY ?? "";
-    pool = new KeyPool(keys);
+    pool = new KeyPool(process.env.MORALIS_API_KEY ?? "");
   }
   return pool;
 }
@@ -33,16 +32,25 @@ async function moralisFetch(path: string): Promise<Response> {
     p.bench(key);
     const next = p.next();
     if (!next) throw new Error("MORALIS_EXHAUSTED");
-    return fetch(`${MORALIS_BASE}${path}`, {
-      headers: { "X-API-Key": next },
-    });
+    return fetch(`${MORALIS_BASE}${path}`, { headers: { "X-API-Key": next } });
   }
 
   return res;
 }
 
+// Fetch current price for a token (for jeet calculation)
+async function fetchTokenPrice(tokenAddress: string): Promise<number> {
+  try {
+    const res = await moralisFetch(`/erc20/${tokenAddress}/price?chain=${BASE_CHAIN}`);
+    if (!res.ok) return 0;
+    const data = await res.json();
+    return parseFloat(data.usdPrice ?? "0") || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function fetchWalletData(address: string): Promise<WalletData> {
-  // Fire all requests in parallel
   const [tokensRes, nftsRes, txRes, nativeRes, statsRes, pnlSummaryRes, pnlBreakdownRes] =
     await Promise.allSettled([
       moralisFetch(`/${address}/erc20?chain=${BASE_CHAIN}&limit=100`),
@@ -62,14 +70,11 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     const data = await tokensRes.value.json();
     for (const t of data.result ?? []) {
       const isSpam = t.possible_spam === true;
-      if (isSpam) { spamCount++; continue; } // skip spam entirely
-
+      if (isSpam) { spamCount++; continue; }
       const balance = parseFloat(t.balance_formatted ?? "0") || 0;
+      if (balance <= 0) continue;
       const usdPrice = parseFloat(t.usd_price ?? "0") || 0;
       const usdValue = parseFloat(t.usd_value ?? "0") || (balance * usdPrice) || 0;
-
-      if (balance <= 0) continue; // skip zero-balance tokens
-
       tokens.push({
         symbol: t.symbol ?? "?",
         name: t.name ?? "Unknown",
@@ -85,10 +90,8 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
   // ── Native ETH balance ────────────────────────────────────────────────────
   if (nativeRes.status === "fulfilled" && nativeRes.value.ok) {
     const data = await nativeRes.value.json();
-    const ethWei = parseFloat(data.balance ?? "0");
-    const ethBalance = ethWei / 1e18;
+    const ethBalance = parseFloat(data.balance ?? "0") / 1e18;
     if (ethBalance > 0.00001) {
-      // Moralis balance endpoint doesn't include price — use usd_value if present
       const usdValue = parseFloat(data.usd_value ?? "0") || 0;
       tokens.unshift({
         symbol: "ETH",
@@ -133,26 +136,17 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
       const ts = new Date(tx.block_timestamp).getTime();
       if (!firstTxTimestamp || ts < firstTxTimestamp) firstTxTimestamp = ts;
       if (!lastTxTimestamp || ts > lastTxTimestamp) lastTxTimestamp = ts;
-
       baseNativeTxCount++;
-
       const to = (tx.to_address ?? "").toLowerCase();
       if (to) contractsInteracted.add(to);
-
-      // Bridge detection
       if (tx.input && tx.input.length > 10) bridgeCount++;
-
-      // Known protocol detection
-      if (KNOWN_BASE_PROTOCOLS[to]) {
-        protocols.add(KNOWN_BASE_PROTOCOLS[to]);
-      }
+      if (KNOWN_BASE_PROTOCOLS[to]) protocols.add(KNOWN_BASE_PROTOCOLS[to]);
     }
   }
 
-  // ── Real tx count from stats endpoint ────────────────────────────────────
+  // ── Stats for real tx count ───────────────────────────────────────────────
   if (statsRes.status === "fulfilled" && statsRes.value.ok) {
     const stats = await statsRes.value.json();
-    // Moralis stats returns { transactions: { total: N } }
     const realCount = stats.transactions?.total ?? stats.native_transactions_count ?? 0;
     if (realCount > 0) {
       totalTxCount = realCount;
@@ -160,30 +154,30 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     }
   }
 
-  // ── Basescan tx enrichment (more accurate tx count + timestamps) ─────────
+  // ── Basescan enrichment ───────────────────────────────────────────────────
   const basescanSummary = await fetchTxSummary(address).catch(() => null);
+  let contractsDeployed = 0;
+  let deployedContractAddresses: string[] = [];
+
   if (basescanSummary) {
-    totalTxCount = basescanSummary.totalTxCount > totalTxCount
-      ? basescanSummary.totalTxCount
-      : totalTxCount;
-    baseNativeTxCount = totalTxCount;
+    if (basescanSummary.totalTxCount > totalTxCount) {
+      totalTxCount = basescanSummary.totalTxCount;
+      baseNativeTxCount = basescanSummary.totalTxCount;
+    }
     if (basescanSummary.firstTxTimestamp) firstTxTimestamp = basescanSummary.firstTxTimestamp;
     if (basescanSummary.lastTxTimestamp) lastTxTimestamp = basescanSummary.lastTxTimestamp;
-    if (basescanSummary.uniqueContractsInteracted.size > contractsInteracted.size) {
-      for (const c of basescanSummary.uniqueContractsInteracted) contractsInteracted.add(c);
-    }
+    for (const c of basescanSummary.uniqueContractsInteracted) contractsInteracted.add(c);
     bridgeCount = Math.max(bridgeCount, basescanSummary.bridgeCount);
-    // Add labeled protocol names
-    for (const label of basescanSummary.contractLabels.values()) {
-      protocols.add(label);
-    }
+    for (const label of basescanSummary.contractLabels.values()) protocols.add(label);
+    contractsDeployed = basescanSummary.contractsDeployed;
+    deployedContractAddresses = basescanSummary.deployedContractAddresses;
   }
 
   // ── PnL Summary ───────────────────────────────────────────────────────────
   let pnlSummary: PnLSummary | null = null;
   if (pnlSummaryRes.status === "fulfilled" && pnlSummaryRes.value.ok) {
     const data = await pnlSummaryRes.value.json();
-    if (data && typeof data.total_realized_profit_usd !== "undefined") {
+    if (data && typeof data.total_count_of_trades !== "undefined") {
       pnlSummary = {
         totalRealizedProfitUsd: parseFloat(data.total_realized_profit_usd ?? "0") || 0,
         totalRealizedProfitPct: parseFloat(data.total_realized_profit_percentage ?? "0") || 0,
@@ -196,18 +190,21 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     }
   }
 
-  // ── PnL Breakdown — top trades ────────────────────────────────────────────
+  // ── PnL Breakdown + Jeet Detection ───────────────────────────────────────
   const topTrades: TradeRecord[] = [];
+  const jeets: JeetRecord[] = [];
+
   if (pnlBreakdownRes.status === "fulfilled" && pnlBreakdownRes.value.ok) {
     const data = await pnlBreakdownRes.value.json();
     const results: any[] = data.result ?? [];
 
+    // Build trade records
     for (const t of results) {
       const realizedProfit = parseFloat(t.realized_profit_usd ?? "0") || 0;
       const totalInvested = parseFloat(t.total_usd_invested ?? "0") || 0;
-      const roiPct = totalInvested > 0
-        ? ((realizedProfit / totalInvested) * 100)
-        : 0;
+      const totalSold = parseFloat(t.total_tokens_sold ?? "0") || 0;
+      const avgSellPrice = parseFloat(t.avg_sell_price_usd ?? "0") || 0;
+      const roiPct = totalInvested > 0 ? (realizedProfit / totalInvested) * 100 : 0;
 
       topTrades.push({
         tokenSymbol: t.symbol ?? "?",
@@ -215,16 +212,41 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
         realizedProfitUsd: realizedProfit,
         totalInvestedUsd: totalInvested,
         avgBuyPriceUsd: parseFloat(t.avg_buy_price_usd ?? "0") || 0,
-        avgSellPriceUsd: parseFloat(t.avg_sell_price_usd ?? "0") || 0,
+        avgSellPriceUsd: avgSellPrice,
         totalBought: parseFloat(t.total_tokens_bought ?? "0") || 0,
-        totalSold: parseFloat(t.total_tokens_sold ?? "0") || 0,
+        totalSold,
         isWin: realizedProfit > 0,
         roiPct,
       });
+
+      // Jeet detection: sold tokens that are still tradeable
+      // A jeet = sold early and token kept going up
+      if (totalSold > 0 && avgSellPrice > 0 && t.token_address) {
+        const currentPrice = await fetchTokenPrice(t.token_address).catch(() => 0);
+        if (currentPrice > avgSellPrice * 1.2) { // token went up 20%+ after they sold
+          const currentValueIfHeld = totalSold * currentPrice;
+          const realizedAtSale = totalSold * avgSellPrice;
+          const missedGains = currentValueIfHeld - realizedAtSale;
+          const missedGainsPct = ((currentPrice - avgSellPrice) / avgSellPrice) * 100;
+
+          jeets.push({
+            tokenSymbol: t.symbol ?? "?",
+            tokenName: t.name ?? "Unknown",
+            tokenAddress: t.token_address,
+            soldAtPrice: avgSellPrice,
+            currentPrice,
+            amountSold: totalSold,
+            realizedAtSale,
+            currentValueIfHeld,
+            missedGains,
+            missedGainsPct,
+          });
+        }
+      }
     }
 
-    // Sort by realized profit descending — biggest wins first
     topTrades.sort((a, b) => b.realizedProfitUsd - a.realizedProfitUsd);
+    jeets.sort((a, b) => b.missedGains - a.missedGains);
   }
 
   const totalPortfolioUsd = tokens.reduce((s, t) => s + (isNaN(t.usdValue) ? 0 : t.usdValue), 0);
@@ -242,8 +264,11 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     spamTokenCount: spamCount,
     defiProtocolsUsed: Array.from(protocols),
     bridgeCount,
+    contractsDeployed,
+    deployedContractAddresses,
     pnlSummary,
     topTrades,
+    jeets: jeets.slice(0, 10),
   };
 }
 
@@ -263,7 +288,6 @@ export async function fetchApprovals(address: string): Promise<RawApprovalEvent[
   }
 }
 
-// Known Base DeFi protocol addresses
 const KNOWN_BASE_PROTOCOLS: Record<string, string> = {
   "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24": "Uniswap V3",
   "0x2626664c2603336e57b271c5c0b26f421741e481": "Uniswap V3",
@@ -273,8 +297,4 @@ const KNOWN_BASE_PROTOCOLS: Record<string, string> = {
   "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae": "LiFi Bridge",
   "0x3154cf16ccdb4c6d922629664174b904d80f2c35": "Base Bridge",
   "0x49048044d57e1c92a77f79988d21fa8faf74e97e": "Base Bridge",
-  "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0": "Polygon Bridge",
-  "0x4200000000000000000000000000000000000006": "WETH",
-  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "USDC",
 };
- 
