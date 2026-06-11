@@ -17,10 +17,12 @@ import { generateRoast } from "./scoring/roast";
 export async function scanWallet(address: string, forceRefresh = false): Promise<ScanResult> {
   const cacheKey = `scan:${address.toLowerCase()}`;
 
-  // 1. Fresh cache hit — skip if forceRefresh or if cached result has 0 txs (bad cache)
+  // 1. Fresh cache hit — only serve if cached result has real data
   if (!forceRefresh) {
     const cached = await cache.get<ScanResult>(cacheKey);
-    if (cached && cached.scores.reputation > 0) return { ...cached, dataSource: "cache" };
+    if (cached && cached.scores.reputation > 0 && cached.summary && !cached.summary.includes("0 transactions")) {
+      return { ...cached, dataSource: "cache" };
+    }
   }
 
   let walletData: WalletData | null = null;
@@ -98,8 +100,9 @@ export async function scanWallet(address: string, forceRefresh = false): Promise
     deployedContractAddresses: walletData.deployedContractAddresses,
   };
 
-  // Only cache if we got real data — never cache empty/ghost results for active wallets
-  if (walletData.totalTxCount > 0 || walletData.tokenHoldings.length > 0) {
+  // Only cache if we got real data — never cache empty/ghost results
+  const hasRealData = walletData.totalTxCount > 5 || walletData.contractsDeployed > 0 || walletData.totalPortfolioUsd > 10;
+  if (hasRealData) {
     await cache.set(cacheKey, result);
   }
   return result;
