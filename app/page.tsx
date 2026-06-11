@@ -14,7 +14,7 @@ export default function Home() {
 
   const { isMiniApp, viewerAddress, viewerUsername } = useMiniApp();
 
-  async function handleScan(addr?: string) {
+  async function handleScan(addr?: string, refresh = false) {
     const target = addr ?? address;
     if (!target.trim()) return;
     setLoading(true);
@@ -24,7 +24,7 @@ export default function Home() {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: target.trim() }),
+        body: JSON.stringify({ address: target.trim(), refresh }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Scan failed");
@@ -230,6 +230,7 @@ export default function Home() {
         {/* Action bar */}
         <div className="flex gap-3">
           <button className="btn-ghost flex-1" onClick={() => setResult(null)}>SCAN ANOTHER</button>
+          <button className="btn-ghost" onClick={() => handleScan(result.address, true)} title="Force refresh — bypass cache">↺</button>
           <button className="btn-primary" onClick={handleShare}>SHARE CARD ↗</button>
         </div>
 
