@@ -1,7 +1,6 @@
 // lib/scanService.ts
 // Circuit breaker orchestrator.
 // Failover chain: fresh cache → Moralis → Alchemy → public RPC → stale cache → error
-// All data sources degrade gracefully — never throws to the caller.
 
 import { ScanResult, WalletData, SocialData } from "./types";
 import { cache } from "./cache";
@@ -33,18 +32,20 @@ export async function scanWallet(address: string): Promise<ScanResult> {
     if (e.message !== "MORALIS_EXHAUSTED") throw e;
   }
 
-  // 3. Alchemy (alternate)
+  // 3. Alchemy (alternate) — note: no PnL data from Alchemy
   if (!walletData && process.env.ALCHEMY_API_KEY) {
     try {
-      walletData = await alchemy.fetchWalletData(address);
+      const alchemyData = await alchemy.fetchWalletData(address);
+      walletData = { ...alchemyData, pnlSummary: null, topTrades: [] };
       dataSource = "alchemy";
     } catch {}
   }
 
-  // 4. Public RPC (keyless degraded)
+  // 4. Public RPC (keyless degraded) — no PnL data
   if (!walletData) {
     try {
-      walletData = await publicRpc.fetchWalletData(address);
+      const rpcData = await publicRpc.fetchWalletData(address);
+      walletData = { ...rpcData, pnlSummary: null, topTrades: [] };
       dataSource = "publicRpc";
     } catch {}
   }
@@ -56,14 +57,14 @@ export async function scanWallet(address: string): Promise<ScanResult> {
     throw new Error("All data sources exhausted — try again later.");
   }
 
-  // Fetch social data (non-blocking — failure returns null)
+  // Fetch social data (non-blocking)
   let socialData: SocialData | null = null;
   try {
     socialData = await fetchSocialData(address);
   } catch {}
 
   // Fetch approvals (non-blocking)
-  let approvals = [];
+  let approvals: import("./types").ApprovalRecord[] = [];
   try {
     const raw = await moralis.fetchApprovals(address);
     approvals = parseApprovals(raw);
@@ -75,7 +76,7 @@ export async function scanWallet(address: string): Promise<ScanResult> {
   const verdictTags = generateVerdictTags(scores, walletData, socialData, approvals);
   const rarityPercentile = computeRarityPercentile(scores);
 
-  // Generate roast + summary (with OpenAI or template fallback)
+  // Generate roast
   const roast = await generateRoast({
     address,
     scores,
@@ -101,6 +102,8 @@ export async function scanWallet(address: string): Promise<ScanResult> {
     rarityPercentile,
     scannedAt: Date.now(),
     dataSource,
+    pnlSummary: walletData.pnlSummary,
+    topTrades: walletData.topTrades,
   };
 
   cache.set(cacheKey, result);
@@ -117,13 +120,18 @@ function buildSummary(
     ? Math.floor((Date.now() - wallet.firstTxTimestamp) / 86_400_000)
     : 0;
 
+  const nonSpamTokens = wallet.tokenHoldings.filter((t) => !t.isSpam);
+  const portfolioStr = wallet.totalPortfolioUsd > 0
+    ? `~$${wallet.totalPortfolioUsd.toFixed(0)} USD`
+    : `${nonSpamTokens.length} token${nonSpamTokens.length !== 1 ? "s" : ""}`;
+
   const parts: string[] = [
     `${ageDays > 0 ? `${ageDays}-day-old` : "New"} wallet.`,
-    `${wallet.totalTxCount} total transactions, ${wallet.baseNativeTxCount} on Base.`,
+    `${wallet.totalTxCount.toLocaleString()} transactions on Base.`,
     social?.hasFarcaster
-      ? `Farcaster: @${social.farcasterUsername} (${social.followerCount} followers).`
+      ? `Farcaster: @${social.farcasterUsername} (${social.followerCount.toLocaleString()} followers).`
       : "No Farcaster identity found.",
-    `Portfolio: ~$${wallet.totalPortfolioUsd.toFixed(0)} USD across ${wallet.tokenHoldings.length} tokens.`,
+    `Portfolio: ${portfolioStr}.`,
     `Classified as: ${archetype}.`,
   ];
 
