@@ -52,6 +52,15 @@ export function generateVerdictTags(
   else if (highApprovals.length >= 3) tags.push("Approval Risk");
   else if (approvals.length === 0) tags.push("Clean Approvals");
 
+  // ── Builder tags ─────────────────────────────────────────────────────────
+  if ((wallet.contractsDeployed ?? 0) >= 3) tags.push("🔨 Serial Builder");
+  else if ((wallet.contractsDeployed ?? 0) >= 1) tags.push("🔨 On-Chain Builder");
+
+  // ── Trading tags ─────────────────────────────────────────────────────────
+  if (wallet.pnlSummary && wallet.pnlSummary.totalRealizedProfitUsd > 10000) tags.push("💰 Profitable Trader");
+  if (wallet.jeets && wallet.jeets.length >= 3) tags.push("🧻 Certified Jeet");
+  if (wallet.topTrades && wallet.topTrades.filter(t => t.isWin).length >= 3) tags.push("📈 Consistent Winner");
+
   // ── Spam tag ─────────────────────────────────────────────────────────────
   if (wallet.spamTokenCount > 5) tags.push("Spam Magnet");
 
