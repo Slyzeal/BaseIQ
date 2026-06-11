@@ -187,6 +187,103 @@ export default function Home() {
           </div>
         )}
 
+        {/* PnL Summary */}
+        {result.pnlSummary && result.pnlSummary.totalTradeCount > 0 && (
+          <div className="card mb-4">
+            <div className="font-mono text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+              TRADING PnL — ALL TIME
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <div>
+                <div
+                  className="font-mono text-xl font-bold"
+                  style={{
+                    color: result.pnlSummary.totalRealizedProfitUsd >= 0
+                      ? "var(--amber)"
+                      : "var(--red-alert)",
+                  }}
+                >
+                  {result.pnlSummary.totalRealizedProfitUsd >= 0 ? "+" : ""}
+                  ${Math.abs(result.pnlSummary.totalRealizedProfitUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </div>
+                <div className="font-mono text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  REALIZED P&L
+                </div>
+              </div>
+              <div>
+                <div
+                  className="font-mono text-xl font-bold"
+                  style={{
+                    color: result.pnlSummary.totalRealizedProfitPct >= 0
+                      ? "var(--amber)"
+                      : "var(--red-alert)",
+                  }}
+                >
+                  {result.pnlSummary.totalRealizedProfitPct >= 0 ? "+" : ""}
+                  {result.pnlSummary.totalRealizedProfitPct.toFixed(1)}%
+                </div>
+                <div className="font-mono text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  ROI
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-4 text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+              <span>{result.pnlSummary.totalTradeCount} trades</span>
+              <span>{result.pnlSummary.totalBuys} buys</span>
+              <span>{result.pnlSummary.totalSells} sells</span>
+              <span>${(result.pnlSummary.totalBoughtVolumeUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })} volume</span>
+            </div>
+          </div>
+        )}
+
+        {/* Top Trades */}
+        {result.topTrades && result.topTrades.length > 0 && (
+          <div className="card mb-6">
+            <div className="font-mono text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+              TOP TRADES — BIGGEST WINS & LOSSES
+            </div>
+            {result.topTrades.slice(0, 5).map((trade, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between py-2 border-t text-xs font-mono"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <div>
+                  <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                    {trade.tokenSymbol}
+                  </span>
+                  <span style={{ color: "var(--text-muted)", marginLeft: "8px" }}>
+                    avg buy ${trade.avgBuyPriceUsd < 0.01
+                      ? trade.avgBuyPriceUsd.toFixed(6)
+                      : trade.avgBuyPriceUsd.toFixed(4)}
+                    {trade.avgSellPriceUsd > 0 && ` → $${trade.avgSellPriceUsd < 0.01
+                      ? trade.avgSellPriceUsd.toFixed(6)
+                      : trade.avgSellPriceUsd.toFixed(4)}`}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span
+                    style={{
+                      color: trade.isWin ? "var(--amber)" : "var(--red-alert)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {trade.isWin ? "+" : ""}${trade.realizedProfitUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                  <span style={{ color: "var(--text-muted)", marginLeft: "6px" }}>
+                    ({trade.roiPct >= 0 ? "+" : ""}{trade.roiPct.toFixed(0)}%)
+                  </span>
+                </div>
+              </div>
+            ))}
+            {result.topTrades.length === 0 && (
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                No completed trades found.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Action bar */}
         <div className="flex gap-3">
           <button className="btn-ghost flex-1" onClick={() => setResult(null)}>
