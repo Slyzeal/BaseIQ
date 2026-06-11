@@ -46,7 +46,20 @@ export default function Home() {
       arch: result.archetype,
       emoji: result.archetypeEmoji,
     });
-    window.open(`/api/og?${params.toString()}`, "_blank");
+    const ogUrl = `${window.location.origin}/api/og?${params.toString()}`;
+    const shareUrl = window.location.href;
+
+    // Try native share first (mobile)
+    if (navigator.share) {
+      navigator.share({
+        title: `BaseIQ — ${result.archetype}`,
+        text: `My wallet scored ${result.scores.reputation} reputation, ${result.scores.baseAlignment} Base alignment, ${result.scores.conviction} conviction on BaseIQ. Archetype: ${result.archetypeEmoji} ${result.archetype}`,
+        url: shareUrl,
+      }).catch(() => window.open(ogUrl, "_blank"));
+    } else {
+      // Desktop fallback — open image in new tab
+      window.open(ogUrl, "_blank");
+    }
   }
 
   if (result) {
