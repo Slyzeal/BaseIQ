@@ -36,8 +36,11 @@ function computeReputation(w: WalletData): number {
   // Contract diversity (max 20 pts)
   score += Math.min(20, Math.log10(Math.max(1, w.uniqueContractsInteracted)) * 8);
 
-  // Portfolio value (max 15 pts)
-  score += Math.min(15, Math.log10(Math.max(1, w.totalPortfolioUsd)) * 3);
+  // Portfolio value (max 15 pts) — use token count as fallback if USD unavailable
+  const portfolioScore = w.totalPortfolioUsd > 0
+    ? Math.min(15, Math.log10(Math.max(1, w.totalPortfolioUsd)) * 3)
+    : Math.min(10, w.tokenHoldings.filter((t) => !t.isSpam).length * 1.5);
+  score += portfolioScore;
 
   // Spam penalty (up to -10 pts)
   const spamRatio =
