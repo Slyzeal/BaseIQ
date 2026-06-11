@@ -1,24 +1,25 @@
 // lib/adapters/basescan.ts
-// Basescan (Etherscan V2) adapter for Base mainnet.
-// Provides: accurate tx count, timestamps, contracts deployed, contract labels.
-// Free tier: 5 calls/sec, 100k calls/day.
+// Basescan adapter — real tx count, timestamps, contract deployments.
+// Uses eth_getTransactionCount for accurate total and txlistinternal for deployments.
 
 const BASESCAN_BASE = "https://api.basescan.org/api";
 
 async function basescanFetch(params: Record<string, string>): Promise<any> {
   const apiKey = process.env.BASESCAN_API_KEY;
   if (!apiKey) return null;
-
   const query = new URLSearchParams({ ...params, apikey: apiKey });
   try {
-    const res = await fetch(`${BASESCAN_BASE}?${query.toString()}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(`${BASESCAN_BASE}?${query.toString()}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
     if (!res.ok) return null;
     const data = await res.json();
     if (data.status === "0" && data.message !== "No transactions found") return null;
     return data;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 export interface BasescanTxSummary {
@@ -36,56 +37,75 @@ export async function fetchTxSummary(address: string): Promise<BasescanTxSummary
   try {
     const addrLower = address.toLowerCase();
 
-    // Fetch up to 10k txs for full history (Basescan allows offset up to 10000)
-    const [allData, firstData] = await Promise.allSettled([
-      basescanFetch({ module: "account", action: "txlist", address, page: "1", offset: "10000", sort: "desc" }),
+    // Fire 3 calls in parallel
+    const [recentRes, firstRes, internalRes] = await Promise.allSettled([
+      // Recent 100 txs for timestamps + contract interactions
+      basescanFetch({ module: "account", action: "txlist", address, page: "1", offset: "100", sort: "desc" }),
+      // First tx for wallet age
       basescanFetch({ module: "account", action: "txlist", address, page: "1", offset: "1", sort: "asc" }),
+      // Internal txs — captures contract deployments (type: "create")
+      basescanFetch({ module: "account", action: "txlistinternal", address, page: "1", offset: "50", sort: "desc" }),
     ]);
 
-    const allTxs: any[] = allData.status === "fulfilled" && allData.value?.result
-      ? allData.value.result : [];
-    const firstTxs: any[] = firstData.status === "fulfilled" && firstData.value?.result
-      ? firstData.value.result : [];
+    const recentTxs: any[] = recentRes.status === "fulfilled" && recentRes.value?.result
+      ? recentRes.value.result : [];
+    const firstTxs: any[] = firstRes.status === "fulfilled" && firstRes.value?.result
+      ? firstRes.value.result : [];
 
-    if (allTxs.length === 0) return null;
+    if (recentTxs.length === 0 && firstTxs.length === 0) return null;
 
-    const totalTxCount = allTxs.length;
-    const firstTx = firstTxs[0] ?? allTxs[allTxs.length - 1];
-    const lastTx = allTxs[0];
-
+    // Timestamps
+    const firstTx = firstTxs[0] ?? recentTxs[recentTxs.length - 1];
+    const lastTx = recentTxs[0];
     const firstTxTimestamp = firstTx?.timeStamp ? parseInt(firstTx.timeStamp) * 1000 : null;
     const lastTxTimestamp = lastTx?.timeStamp ? parseInt(lastTx.timeStamp) * 1000 : null;
 
+    // Real total tx count via eth_getTransactionCount (nonce = tx count)
+    let totalTxCount = recentTxs.length;
+    const nonceRes = await basescanFetch({
+      module: "proxy",
+      action: "eth_getTransactionCount",
+      address,
+      tag: "latest",
+    });
+    if (nonceRes?.result) {
+      const count = parseInt(nonceRes.result, 16);
+      if (count > 0) totalTxCount = count;
+    }
+
+    // Contract interactions + bridge detection from recent txs
     const uniqueContractsInteracted = new Set<string>();
     const contractLabels = new Map<string, string>();
     let bridgeCount = 0;
     const deployedContractAddresses: string[] = [];
 
-    for (const tx of allTxs) {
+    for (const tx of recentTxs) {
       const to = (tx.to ?? "").toLowerCase();
-      const from = (tx.from ?? "").toLowerCase();
 
-      // Contract deployment: to is empty string
-      if (!tx.to || tx.to === "") {
-        if (tx.contractAddress) {
-          deployedContractAddresses.push(tx.contractAddress);
-        }
+      // Contract deployment: to is empty
+      if (!tx.to || tx.to === "" || tx.to === "0x") {
+        if (tx.contractAddress) deployedContractAddresses.push(tx.contractAddress);
         continue;
       }
 
-      if (to && to !== addrLower) {
-        uniqueContractsInteracted.add(to);
-      }
+      if (to && to !== addrLower) uniqueContractsInteracted.add(to);
+      if (BRIDGES[to]) { bridgeCount++; contractLabels.set(to, BRIDGES[to]); }
+      if (PROTOCOLS[to]) contractLabels.set(to, PROTOCOLS[to]);
+    }
 
-      if (KNOWN_BASE_BRIDGES[to]) {
-        bridgeCount++;
-        contractLabels.set(to, KNOWN_BASE_BRIDGES[to]);
-      }
+    // Internal txs for additional deployment detection
+    const internalTxs: any[] = internalRes.status === "fulfilled" && internalRes.value?.result
+      ? internalRes.value.result : [];
 
-      if (KNOWN_BASE_CONTRACTS[to]) {
-        contractLabels.set(to, KNOWN_BASE_CONTRACTS[to]);
+    for (const tx of internalTxs) {
+      if (tx.type === "create" && tx.contractAddress && tx.from?.toLowerCase() === addrLower) {
+        if (!deployedContractAddresses.includes(tx.contractAddress)) {
+          deployedContractAddresses.push(tx.contractAddress);
+        }
       }
     }
+
+    console.log(`[basescan] ${address.slice(0,8)} txCount:${totalTxCount} deployed:${deployedContractAddresses.length} bridges:${bridgeCount}`);
 
     return {
       totalTxCount,
@@ -97,12 +117,10 @@ export async function fetchTxSummary(address: string): Promise<BasescanTxSummary
       contractsDeployed: deployedContractAddresses.length,
       deployedContractAddresses,
     };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-const KNOWN_BASE_BRIDGES: Record<string, string> = {
+const BRIDGES: Record<string, string> = {
   "0x3154cf16ccdb4c6d922629664174b904d80f2c35": "Base Bridge",
   "0x49048044d57e1c92a77f79988d21fa8faf74e97e": "Base Bridge",
   "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae": "LiFi Bridge",
@@ -110,7 +128,7 @@ const KNOWN_BASE_BRIDGES: Record<string, string> = {
   "0x9de443adc5a411e83f1878ef24c3f52c61571e72": "Stargate",
 };
 
-const KNOWN_BASE_CONTRACTS: Record<string, string> = {
+const PROTOCOLS: Record<string, string> = {
   "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24": "Uniswap V3",
   "0x2626664c2603336e57b271c5c0b26f421741e481": "Uniswap V3",
   "0x6ff5693b99212da76ad316178a184ab56d299b43": "Aerodrome",
