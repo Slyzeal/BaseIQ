@@ -30,7 +30,6 @@ async function moralisFetch(path: string): Promise<Response> {
 
   if (res.status === 429 || res.status === 402) {
     p.bench(key);
-    // Retry once with next key
     const next = p.next();
     if (!next) throw new Error("MORALIS_EXHAUSTED");
     return fetch(`${MORALIS_BASE}${path}`, {
@@ -43,7 +42,7 @@ async function moralisFetch(path: string): Promise<Response> {
 
 export async function fetchWalletData(address: string): Promise<WalletData> {
   const [tokensRes, nftsRes, txRes] = await Promise.allSettled([
-    moralisFetch(`/${address}/erc20?chain=${BASE_CHAIN}&limit=100`),
+    moralisFetch(`/${address}/erc20?chain=${BASE_CHAIN}&limit=100&exclude_spam=false`),
     moralisFetch(`/${address}/nft?chain=${BASE_CHAIN}&limit=50`),
     moralisFetch(`/${address}?chain=${BASE_CHAIN}&limit=100`),
   ]);
@@ -56,12 +55,18 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
     for (const t of data.result ?? []) {
       const isSpam = t.possible_spam === true;
       if (isSpam) spamCount++;
+
+      // Moralis free tier: usd_value may be null — use usd_price * balance as fallback
+      const balance = parseFloat(t.balance_formatted ?? "0") || 0;
+      const usdPrice = parseFloat(t.usd_price ?? "0") || 0;
+      const usdValue = parseFloat(t.usd_value ?? "0") || (balance * usdPrice) || 0;
+
       tokens.push({
         symbol: t.symbol ?? "?",
         name: t.name ?? "Unknown",
         contractAddress: t.token_address,
-        balance: parseFloat(t.balance_formatted ?? "0"),
-        usdValue: parseFloat(t.usd_value ?? "0"),
+        balance,
+        usdValue,
         isSpam,
         chain: "base",
       });
@@ -89,11 +94,14 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
   let lastTxTimestamp: number | null = null;
   const protocols = new Set<string>();
   let bridgeCount = 0;
+  const contractsInteracted = new Set<string>();
 
   if (txRes.status === "fulfilled" && txRes.value.ok) {
     const data = await txRes.value.json();
     const txs = data.result ?? [];
-    totalTxCount = data.total ?? txs.length;
+
+    // Use cursor-based total if available, otherwise use page total
+    totalTxCount = typeof data.total === "number" ? data.total : txs.length;
 
     for (const tx of txs) {
       const ts = new Date(tx.block_timestamp).getTime();
@@ -102,18 +110,33 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
 
       baseNativeTxCount++;
 
-      // Heuristic protocol detection
       const to = (tx.to_address ?? "").toLowerCase();
-      if (to.includes("bridge") || tx.input?.startsWith("0x")) bridgeCount++;
+      contractsInteracted.add(to);
+
+      // Bridge heuristic — large input data usually means contract interaction
+      if (tx.input && tx.input.length > 10) bridgeCount++;
+
+      // Protocol detection from known Base DeFi addresses
+      if (KNOWN_BASE_PROTOCOLS[to]) {
+        protocols.add(KNOWN_BASE_PROTOCOLS[to]);
+      }
     }
   }
 
-  const totalPortfolioUsd = tokens.reduce((s, t) => s + t.usdValue, 0);
+  // If totalTxCount came from data.total, baseNativeTxCount is the page count
+  // Use the larger of the two for more accurate scoring
+  if (totalTxCount > baseNativeTxCount) {
+    baseNativeTxCount = totalTxCount;
+  }
+
+  const totalPortfolioUsd = tokens
+    .filter((t) => !t.isSpam)
+    .reduce((s, t) => s + (isNaN(t.usdValue) ? 0 : t.usdValue), 0);
 
   return {
     address,
     totalTxCount,
-    uniqueContractsInteracted: Math.floor(totalTxCount * 0.4), // heuristic
+    uniqueContractsInteracted: contractsInteracted.size || Math.floor(totalTxCount * 0.4),
     baseNativeTxCount,
     firstTxTimestamp,
     lastTxTimestamp,
@@ -145,3 +168,14 @@ export async function fetchApprovals(
     return [];
   }
 }
+
+// Known Base DeFi protocol addresses (partial list)
+const KNOWN_BASE_PROTOCOLS: Record<string, string> = {
+  "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24": "Uniswap",
+  "0x2626664c2603336e57b271c5c0b26f421741e481": "Uniswap",
+  "0x6ff5693b99212da76ad316178a184ab56d299b43": "Aerodrome",
+  "0x420dd381b31aef6683db6b902084cb0ffece40da": "Aerodrome",
+  "0x3a23f943181408eac424116af7b7790c94cb97a5": "Socket Bridge",
+  "0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae": "LiFi Bridge",
+  "0x9c52b5b1a9f6a20b06f6b2c0bef3f0b0e6d4c5a2": "Stargate",
+};
