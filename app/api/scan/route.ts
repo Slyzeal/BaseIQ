@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { address } = body as { address?: string };
+    const { address, refresh } = body as { address?: string; refresh?: boolean };
 
     if (!address || typeof address !== "string") {
       return NextResponse.json(
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await scanWallet(clean);
+    const result = await scanWallet(clean, refresh === true);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error("[/api/scan]", e);
