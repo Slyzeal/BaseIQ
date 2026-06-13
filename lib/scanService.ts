@@ -149,7 +149,7 @@ function buildSummary(wallet: WalletData, archetype: string, social: SocialData 
 
   return [
     `${ageDays > 0 ? `${ageDays}-day-old` : "New"} wallet.`,
-    `${wallet.totalTxCount.toLocaleString()} transactions on Base.`,
+    `${(wallet.totalTransferCount || wallet.totalTxCount).toLocaleString()} transactions on Base (incl. token transfers).`,
     social?.hasFarcaster
       ? `Farcaster: @${social.farcasterUsername} (${social.followerCount.toLocaleString()} followers).`
       : "No Farcaster identity found.",
