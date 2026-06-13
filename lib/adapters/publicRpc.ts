@@ -36,6 +36,7 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
   return {
     address,
     totalTxCount: txCount,
+    totalTransferCount: txCount,
     uniqueContractsInteracted: 0,
     baseNativeTxCount: txCount,
     firstTxTimestamp: null,
