@@ -38,6 +38,10 @@ export default function Home() {
 
   function handleShare() {
     if (!result) return;
+    const pnlStr = result.pnlSummary && result.pnlSummary.totalRealizedProfitUsd !== 0
+      ? `$${result.pnlSummary.totalRealizedProfitUsd >= 0 ? "" : "-"}${Math.abs(result.pnlSummary.totalRealizedProfitUsd).toFixed(0)}`
+      : "";
+
     const params = new URLSearchParams({
       address: result.address,
       rep: String(result.scores.reputation),
@@ -45,19 +49,23 @@ export default function Home() {
       conv: String(result.scores.conviction),
       arch: result.archetype,
       emoji: result.archetypeEmoji,
+      roast: result.roast,
+      txCount: String(result.totalTxCount ?? 0),
+      deployed: String(result.contractsDeployed ?? 0),
+      jeets: String(result.jeets?.length ?? 0),
+      tags: result.verdictTags.slice(0, 4).join("|"),
+      pnl: pnlStr,
     });
     const ogUrl = `${window.location.origin}/api/og?${params.toString()}`;
-    const shareUrl = window.location.href;
+    const shareText = `${result.archetypeEmoji} ${result.archetype} — ${result.scores.reputation} rep, ${result.scores.baseAlignment} Base alignment, ${result.scores.conviction} conviction. Scan your wallet on BaseIQ.`;
 
-    // Try native share first (mobile)
     if (navigator.share) {
       navigator.share({
         title: `BaseIQ — ${result.archetype}`,
-        text: `My wallet scored ${result.scores.reputation} reputation, ${result.scores.baseAlignment} Base alignment, ${result.scores.conviction} conviction on BaseIQ. Archetype: ${result.archetypeEmoji} ${result.archetype}`,
-        url: shareUrl,
+        text: shareText,
+        url: window.location.origin,
       }).catch(() => window.open(ogUrl, "_blank"));
     } else {
-      // Desktop fallback — open image in new tab
       window.open(ogUrl, "_blank");
     }
   }
@@ -81,6 +89,18 @@ export default function Home() {
           <div className="font-mono text-xl font-bold mb-1" style={{ color: "var(--amber)" }}>{result.archetype}</div>
           <div className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>TOP {result.rarityPercentile}% OF WALLETS SCANNED</div>
         </div>
+
+        {/* Degraded banner */}
+        {result.degraded === "no-pnl" && (
+          <div className="mb-4 px-4 py-2 rounded font-mono text-xs text-center" style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)", color: "var(--amber)" }}>
+            ⚡ High traffic — PnL data temporarily unavailable. Scores and jeet tracker are live.
+          </div>
+        )}
+        {result.degraded === "basic" && (
+          <div className="mb-4 px-4 py-2 rounded font-mono text-xs text-center" style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)", color: "var(--amber)" }}>
+            ⚡ Degraded mode — basic scan only. Full scan available shortly.
+          </div>
+        )}
 
         {/* Scores */}
         <div className="grid gap-3 mb-6" style={{ gridTemplateColumns: result.scores.social !== null ? "repeat(4,1fr)" : "repeat(3,1fr)" }}>
@@ -168,7 +188,11 @@ export default function Home() {
                 <div className="flex gap-4 text-xs font-mono mt-1" style={{ color: "var(--text-muted)" }}>
                   <span>sold @ ${j.soldAtPrice < 0.01 ? j.soldAtPrice.toFixed(6) : j.soldAtPrice.toFixed(4)}</span>
                   <span>now @ ${j.currentPrice < 0.01 ? j.currentPrice.toFixed(6) : j.currentPrice.toFixed(4)}</span>
-                  <span style={{ color: "var(--amber)" }}>+{j.missedGainsPct.toFixed(0)}% since exit</span>
+                  {j.multiplier && j.multiplier >= 1.5 ? (
+                    <span style={{ color: "var(--amber)", fontWeight: 600 }}>{j.multiplier.toFixed(1)}x since exit 💀</span>
+                  ) : (
+                    <span style={{ color: "var(--amber)" }}>+{j.missedGainsPct.toFixed(0)}% since exit</span>
+                  )}
                 </div>
               </div>
             ))}
