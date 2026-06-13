@@ -3,6 +3,7 @@
 export interface WalletData {
   address: string;
   totalTxCount: number;
+  totalTransferCount: number; // ERC20 + NFT transfers on top of regular txs
   uniqueContractsInteracted: number;
   baseNativeTxCount: number;
   firstTxTimestamp: number | null;
@@ -70,6 +71,7 @@ export interface JeetRecord {
   currentValueIfHeld: number;
   missedGains: number;
   missedGainsPct: number;
+  multiplier?: number;
 }
 
 export interface SocialData {
@@ -124,12 +126,15 @@ export interface ScanResult {
   socialData: SocialData | null;
   rarityPercentile: number;
   scannedAt: number;
-  dataSource: "moralis" | "alchemy" | "publicRpc" | "cache";
+  dataSource: "moralis" | "alchemy" | "publicRpc" | "cache" | "basescan" | "rpc";
+  degraded: null | "no-pnl" | "basic";
   pnlSummary: PnLSummary | null;
   topTrades: TradeRecord[];
   jeets: JeetRecord[];
   contractsDeployed: number;
   deployedContractAddresses: string[];
+  totalTxCount: number;
+  totalTransferCount: number; // includes ERC20 + NFT transfers
 }
 
 export interface ScanRequest {
