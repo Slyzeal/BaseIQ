@@ -73,11 +73,23 @@ export async function fetchWalletData(address: string): Promise<WalletData> {
   const firstTxs: any[] = firstRes.status === "fulfilled" && firstRes.value?.result ? firstRes.value.result : [];
   const internalTxs: any[] = internalRes.status === "fulfilled" && internalRes.value?.result ? internalRes.value.result : [];
 
-  // Get real tx count (RPC nonce = tx count sent from address)
+  // Real tx count strategy:
+  // eth_getTransactionCount = nonce = txs SENT from address
+  // Basescan txlist includes sent + received — closer to what Basescan Analytics shows
+  // Best approach: use nonce as sent count, add received from page sample
   let totalTxCount = recentTxs.length;
   try {
     const nonce = await getTxCount(address);
-    if (nonce > 0) totalTxCount = nonce;
+    if (nonce > 0) {
+      // Count received txs from our 100-tx sample
+      const addrL = address.toLowerCase();
+      const receivedInPage = recentTxs.filter((tx: any) => (tx.to ?? "").toLowerCase() === addrL).length;
+      const sentInPage = recentTxs.filter((tx: any) => (tx.from ?? "").toLowerCase() === addrL).length;
+      // Extrapolate: if page has X% received, total has similar ratio
+      const receivedRatio = sentInPage > 0 ? receivedInPage / sentInPage : 0;
+      const estimatedTotal = Math.round(nonce * (1 + receivedRatio));
+      totalTxCount = Math.max(recentTxs.length, estimatedTotal);
+    }
   } catch {}
 
   // Timestamps
