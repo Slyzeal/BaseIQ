@@ -50,7 +50,7 @@ export default function Home() {
       arch: result.archetype,
       emoji: result.archetypeEmoji,
       roast: result.roast,
-      txCount: String(result.totalTxCount ?? 0),
+      txCount: String(result.totalTransferCount ?? result.totalTxCount ?? 0),
       deployed: String(result.contractsDeployed ?? 0),
       jeets: String(result.jeets?.length ?? 0),
       tags: result.verdictTags.slice(0, 4).join("|"),
